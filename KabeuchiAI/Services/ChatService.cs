@@ -41,7 +41,7 @@ public class FoundryChatService : IChatService
             _logger.LogInformation($"Calling Foundry API with managed identity: {endpoint}");
 
             // マネージドIDを使用してアクセストークンを取得
-            var tokenRequestContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
+            var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = await _credential.GetTokenAsync(tokenRequestContext, default);
 
             // Foundry APIにメッセージを送信
