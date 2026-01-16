@@ -397,3 +397,7 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea/
+
+# Sensitive configuration files
+GITHUB_ACTIONS_OIDC_SETUP_CHECKLIST.md
+AZURE_OIDC_SETUP.md
