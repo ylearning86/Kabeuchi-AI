@@ -34,22 +34,37 @@ public class FoundryChatService : IChatService
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
+            _logger.LogInformation($"Calling Foundry API: {endpoint}/agents/{agentName}/run");
+
             // Foundry APIにメッセージを送信
             var request = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/agents/{agentName}/run")
             {
-                Content = JsonContent.Create(new
-                {
-                    userInput = message,
-                    sessionId = Guid.NewGuid().ToString()
-                })
+                Content = new StringContent(
+                    $$"""{"userInput":"{{message}}", "sessionId":"{{Guid.NewGuid()}}"}""",
+                    System.Text.Encoding.UTF8,
+                    "application/json"
+                )
             };
 
             request.Headers.Add("api-key", apiKey);
+            request.Headers.Add("Accept", "application/json");
+
+            _logger.LogInformation($"API Key configured: {!string.IsNullOrEmpty(apiKey)}");
 
             var response = await _httpClient.SendAsync(request);
-            response.EnsureSuccessStatusCode();
+            
+            _logger.LogInformation($"Response status: {response.StatusCode}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"Foundry API error: {response.StatusCode} - {errorContent}");
+                return $"エージェントエラー: {response.StatusCode} {errorContent}";
+            }
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
+            _logger.LogInformation($"Response: {jsonResponse}");
+
             var jsonDocument = JsonDocument.Parse(jsonResponse);
             var root = jsonDocument.RootElement;
 
@@ -58,6 +73,13 @@ public class FoundryChatService : IChatService
             {
                 return output.GetString() ?? "応答を処理できませんでした。";
             }
+
+            if (root.TryGetProperty("response", out var responseProperty))
+            {
+                return responseProperty.GetString() ?? "応答を処理できませんでした。";
+            }
+
+            return jsonResponse;
 
             return jsonResponse;
         }
