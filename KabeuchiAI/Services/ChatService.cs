@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Azure.Core;
+using Azure.Identity;
 
 namespace KabeuchiAI.Services;
 
@@ -12,12 +14,15 @@ public class FoundryChatService : IChatService
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;
     private readonly ILogger<FoundryChatService> _logger;
+    private readonly TokenCredential _credential;
 
     public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _logger = logger;
+        // マネージドIDで認証
+        _credential = new DefaultAzureCredential();
     }
 
     public async Task<string> SendMessageAsync(string message)
@@ -25,19 +30,23 @@ public class FoundryChatService : IChatService
         try
         {
             var endpoint = _configuration["FoundryConfig:Endpoint"];
-            var apiKey = _configuration["FoundryConfig:ApiKey"];
             var agentName = _configuration["FoundryConfig:AgentName"];
 
-            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
+            if (string.IsNullOrEmpty(endpoint))
             {
-                _logger.LogError("Foundry configuration is missing");
+                _logger.LogError("Foundry endpoint configuration is missing");
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation($"Calling Foundry API: {endpoint}/agents/{agentName}/run");
+            _logger.LogInformation($"Calling Foundry API with managed identity: {endpoint}");
+
+            // マネージドIDを使用してアクセストークンを取得
+            var tokenRequestContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
+            var token = await _credential.GetTokenAsync(tokenRequestContext);
 
             // Foundry APIにメッセージを送信
-            var request = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/agents/{agentName}/run")
+            var url = $"{endpoint}/agents/{agentName}/run";
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = new StringContent(
                     $$"""{"userInput":"{{message}}", "sessionId":"{{Guid.NewGuid()}}"}""",
@@ -46,10 +55,11 @@ public class FoundryChatService : IChatService
                 )
             };
 
-            request.Headers.Add("api-key", apiKey);
+            // Bearer tokenを使用
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
             request.Headers.Add("Accept", "application/json");
 
-            _logger.LogInformation($"API Key configured: {!string.IsNullOrEmpty(apiKey)}");
+            _logger.LogInformation($"Calling URL: {url}");
 
             var response = await _httpClient.SendAsync(request);
             
@@ -80,6 +90,24 @@ public class FoundryChatService : IChatService
             }
 
             return jsonResponse;
+        }
+        catch (Azure.Identity.AuthenticationFailedException ex)
+        {
+            _logger.LogError($"Azure authentication error: {ex.Message}");
+            return $"認証エラー: {ex.Message}";
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError($"Foundry API error: {ex.Message}");
+            return $"エージェントに接続できません: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Unexpected error: {ex.Message}");
+            return $"エラーが発生しました: {ex.Message}";
+        }
+    }
+}
 
             return jsonResponse;
         }
