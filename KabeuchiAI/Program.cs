@@ -5,6 +5,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add Chat Service
+builder.Services.AddHttpClient<KabeuchiAI.Services.IChatService, KabeuchiAI.Services.FoundryChatService>();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", builder =>
+    {
+        builder.AllowAnyOrigin()
+               .AllowAnyMethod()
+               .AllowAnyHeader();
+    });
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -18,7 +30,21 @@ if (app.Environment.IsDevelopment())
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseCors("AllowAll");
+
 app.UseHttpsRedirection();
+
+// Chat API endpoint
+app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatService chatService) =>
+{
+    if (string.IsNullOrEmpty(request.Message))
+        return Results.BadRequest("メッセージが空です");
+
+    var response = await chatService.SendMessageAsync(request.Message);
+    return Results.Ok(new ChatResponse { Response = response });
+})
+.WithName("SendChat")
+.WithOpenApi();
 
 var summaries = new[]
 {
@@ -44,4 +70,15 @@ app.Run();
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
     public int TemperatureF => 32 + (int)(TemperatureC * 1.8);
+}
+
+// Chat Models
+public class ChatRequest
+{
+    public string Message { get; set; } = string.Empty;
+}
+
+public class ChatResponse
+{
+    public string Response { get; set; } = string.Empty;
 }
