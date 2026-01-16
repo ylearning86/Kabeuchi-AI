@@ -63,11 +63,38 @@ mainブランチへのpush時に、Azure App Serviceへ自動的にデプロイ�
 
 #### セットアップ手順
 
-1. Azure PortalでApp Serviceリソースを作成
-2. App Serviceの「発行プロファイル」をダウンロード
-3. GitHubリポジトリの Settings > Secrets and variables > Actions で以下のシークレットを追加:
-   - `AZURE_WEBAPP_PUBLISH_PROFILE`: ダウンロードした発行プロファイルの内容
-4. 必要に応じて `.github/workflows/azure-appservice-deploy.yml` の `AZURE_WEBAPP_NAME` 環境変数をApp Service名に合わせて変更
+1. **Azure PortalでApp Serviceリソースを作成**
+
+2. **Azure ADでアプリ登録を作成**
+   - Azure Portal > Azure Active Directory > アプリの登録 > 新規登録
+   - 任意の名前でアプリケーションを登録（例: `kabeuchi-ai-github-actions`）
+   - クライアントIDとテナントIDをメモ
+
+3. **フェデレーション資格情報の設定**
+   - 作成したアプリの登録 > 証明書とシークレット > フェデレーション資格情報
+   - 「資格情報の追加」をクリック
+   - フェデレーション資格情報のシナリオ: `GitHub Actions deploying Azure resources`
+   - 組織: GitHubのユーザー名またはOrg名（例: `ylearning86`）
+   - リポジトリ: リポジトリ名（例: `Kabeuchi-AI`）
+   - エンティティタイプ: `Branch`
+   - GitHub ブランチ名: `main`
+   - 名前: 任意（例: `github-actions-main-branch`）
+
+4. **AzureのRBACロールを設定**
+   - Azure Portal > App Service > アクセス制御(IAM)
+   - 「ロールの割り当ての追加」をクリック
+   - ロール: `Website Contributor` または `Contributor`
+   - メンバー: 手順2で作成したアプリを選択
+
+5. **GitHubシークレットの設定**
+   - GitHubリポジトリの Settings > Secrets and variables > Actions
+   - 以下のシークレットを追加:
+     - `AZURE_CLIENT_ID`: 手順2で取得したクライアントID
+     - `AZURE_TENANT_ID`: 手順2で取得したテナントID
+     - `AZURE_SUBSCRIPTION_ID`: AzureポータルのサブスクリプションID
+
+6. **ワークフローファイルの確認**
+   - 必要に応じて `.github/workflows/azure-appservice-deploy.yml` の `AZURE_WEBAPP_NAME` 環境変数をApp Service名に合わせて変更
 
 ## ライセンス
 
