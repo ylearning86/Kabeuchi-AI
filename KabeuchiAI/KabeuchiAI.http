@@ -1,0 +1,6 @@
+@KabeuchiAI_HostAddress = http://localhost:5104
+
+GET {{KabeuchiAI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
