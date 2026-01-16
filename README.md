@@ -44,7 +44,7 @@ dotnet build
 dotnet run
 ```
 
-アプリケーションは `https://localhost:5001` または `http://localhost:5000` で起動します。
+アプリケーションは `https://localhost:7272` または `http://localhost:5104` で起動します。
 
 ### テスト実行
 
