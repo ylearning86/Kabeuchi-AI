@@ -57,6 +57,18 @@ dotnet test
 
 GitHub Actionsを使用して、mainブランチへのpush/PR時に自動的にビルドとテストが実行されます。
 
+### Azure App Serviceへの自動デプロイ
+
+mainブランチへのpush時に、Azure App Serviceへ自動的にデプロイされます。
+
+#### セットアップ手順
+
+1. Azure PortalでApp Serviceリソースを作成
+2. App Serviceの「発行プロファイル」をダウンロード
+3. GitHubリポジトリの Settings > Secrets and variables > Actions で以下のシークレットを追加:
+   - `AZURE_WEBAPP_PUBLISH_PROFILE`: ダウンロードした発行プロファイルの内容
+4. 必要に応じて `.github/workflows/azure-appservice-deploy.yml` の `AZURE_WEBAPP_NAME` 環境変数をApp Service名に合わせて変更
+
 ## ライセンス
 
 TBD
