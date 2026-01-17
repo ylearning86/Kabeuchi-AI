@@ -114,7 +114,7 @@ public class FoundryChatService : IChatService
                 Content = content,
             };
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.8");
+            request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.9");
 
             _logger.LogInformation("POST {Url}", url);
 

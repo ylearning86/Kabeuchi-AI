@@ -41,6 +41,37 @@ app.UseCors("AllowAll");
 
 app.UseHttpsRedirection();
 
+// Diagnostics endpoint (no secrets) to verify what the running app is configured to call.
+app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
+{
+    var endpoint = (config["FoundryConfig:Endpoint"] ?? string.Empty).TrimEnd('/');
+    var apiVersion = config["FoundryConfig:ApiVersion"];
+    if (string.IsNullOrWhiteSpace(apiVersion))
+    {
+        apiVersion = "2024-10-21";
+    }
+
+    var agentName = config["FoundryConfig:AgentName"] ?? string.Empty;
+    var computedUrl = string.IsNullOrWhiteSpace(endpoint)
+        ? string.Empty
+        : $"{endpoint}/openai/responses?api-version={Uri.EscapeDataString(apiVersion)}";
+
+    return Results.Ok(new
+    {
+        appVersion = "0.0.9",
+        environment = env.EnvironmentName,
+        foundry = new
+        {
+            endpoint,
+            apiVersion,
+            agentName,
+            computedUrl,
+        }
+    });
+})
+.WithName("Diagnostics")
+.WithOpenApi();
+
 // Chat API endpoint
 app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatService chatService) =>
 {
