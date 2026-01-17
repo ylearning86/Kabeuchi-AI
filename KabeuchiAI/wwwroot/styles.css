@@ -232,12 +232,27 @@ body {
 
 /* レスポンシブ対応 */
 @media (max-width: 600px) {
+    body {
+        padding: 0;
+        justify-content: flex-end;
+        align-items: stretch;
+    }
+
     .chat-container {
         max-width: 100%;
-        height: 100vh;
-        min-height: 100vh;
+        height: 100dvh;
+        min-height: 100dvh;
         border-radius: 0;
         box-shadow: none;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: 0;
+    }
+
+    .chat-box {
+        justify-content: flex-end;
     }
 
     .message p {
