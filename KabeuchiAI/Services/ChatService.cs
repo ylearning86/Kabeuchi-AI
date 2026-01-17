@@ -45,7 +45,7 @@ public class FoundryChatService : IChatService
             var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
 
             // Foundry APIにメッセージを送信
-            var url = $"{endpoint}/agents/{agentName}/run";
+            var url = $"{endpoint}/agents/{agentName}/run?api-version=2024-12-01-preview";
             var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = new StringContent(
