@@ -56,9 +56,8 @@ public class FoundryChatService : IChatService
             var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
             // サポートされている可能性のある API バージョンを試す
             string[] apiVersions = new[] { 
-                "2024-10-01-preview", "2024-09-01-preview", "2024-08-01-preview", 
-                "2024-07-01-preview", "2024-06-01-preview", "2024-05-01-preview",
-                "2024-10-01", "2024-09-01", "2024-08-01", "2024-07-01", "2024-06-01", "2024-05-01"
+                "2025-07-01-preview", "2025-04-01-preview", "2025-02-15-preview",
+                "2024-12-01-preview", "2024-08-01-preview", "2024-02-15-preview"
             };
             
             foreach (var apiVersion in apiVersions)
