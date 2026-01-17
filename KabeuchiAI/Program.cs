@@ -61,7 +61,7 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 
     return Results.Ok(new
     {
-        appVersion = "0.0.13",
+        appVersion = "0.0.14",
         environment = env.EnvironmentName,
         foundry = new
         {
@@ -81,8 +81,16 @@ app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatSe
     if (string.IsNullOrEmpty(request.Message))
         return Results.BadRequest("メッセージが空です");
 
-    var response = await chatService.SendMessageAsync(request.Message, http.RequestAborted);
-    return Results.Ok(new ChatResponse { Response = response });
+    var result = await chatService.SendMessageAsync(request.Message, http.RequestAborted);
+    return Results.Ok(new ChatResponse
+    {
+        Response = result.Text,
+        Meta = new ChatResponseMeta
+        {
+            Model = result.Model,
+            ToolsUsed = result.ToolsUsed.ToArray(),
+        }
+    });
 })
 .WithName("SendChat")
 .WithOpenApi();
@@ -122,4 +130,13 @@ public class ChatRequest
 public class ChatResponse
 {
     public string Response { get; set; } = string.Empty;
+
+    public ChatResponseMeta? Meta { get; set; }
+}
+
+public class ChatResponseMeta
+{
+    public string? Model { get; set; }
+
+    public string[] ToolsUsed { get; set; } = Array.Empty<string>();
 }

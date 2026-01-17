@@ -32,8 +32,13 @@ public class AzureAITokenCredential : TokenCredential
 
 public interface IChatService
 {
-    Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default);
+    Task<ChatServiceResult> SendMessageAsync(string message, CancellationToken cancellationToken = default);
 }
+
+public sealed record ChatServiceResult(
+    string Text,
+    string? Model,
+    IReadOnlyList<string> ToolsUsed);
 
 public class FoundryChatService : IChatService
 {
@@ -132,6 +137,98 @@ public class FoundryChatService : IChatService
         return null;
     }
 
+    private static (string? model, IReadOnlyList<string> toolsUsed) ExtractMetaFromResponse(string responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return (null, Array.Empty<string>());
+        }
+
+        using var jsonDoc = JsonDocument.Parse(responseContent);
+        var root = jsonDoc.RootElement;
+
+        string? model = null;
+        if (root.TryGetProperty("model", out var modelElement) && modelElement.ValueKind == JsonValueKind.String)
+        {
+            model = modelElement.GetString();
+        }
+
+        var tools = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Only infer tools from *output* (not from the request's "tools" list), to keep this "actual used".
+        if (root.TryGetProperty("output", out var outputItems) && outputItems.ValueKind == JsonValueKind.Array)
+        {
+            void Walk(JsonElement element)
+            {
+                switch (element.ValueKind)
+                {
+                    case JsonValueKind.Object:
+                        {
+                            // Heuristic 1: explicit tool type/name fields
+                            if (element.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String)
+                            {
+                                var type = typeEl.GetString();
+                                if (!string.IsNullOrWhiteSpace(type))
+                                {
+                                    // Common patterns: "tool_call", "file_search", "openapi", "function_call", "mcp"
+                                    if (type.Equals("file_search", StringComparison.OrdinalIgnoreCase) ||
+                                        type.Equals("openapi", StringComparison.OrdinalIgnoreCase) ||
+                                        type.Equals("mcp", StringComparison.OrdinalIgnoreCase) ||
+                                        type.Equals("tool_call", StringComparison.OrdinalIgnoreCase) ||
+                                        type.Equals("function_call", StringComparison.OrdinalIgnoreCase) ||
+                                        type.EndsWith("_call", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        tools.Add(type);
+                                    }
+                                }
+                            }
+
+                            // Heuristic 2: OpenAPI tool often carries a name
+                            if (element.TryGetProperty("openapi", out var openapiObj) && openapiObj.ValueKind == JsonValueKind.Object)
+                            {
+                                if (openapiObj.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+                                {
+                                    var name = nameEl.GetString();
+                                    if (!string.IsNullOrWhiteSpace(name))
+                                    {
+                                        tools.Add($"openapi:{name}");
+                                    }
+                                }
+                            }
+
+                            // Heuristic 3: function tool calls
+                            if (element.TryGetProperty("function_name", out var fnEl) && fnEl.ValueKind == JsonValueKind.String)
+                            {
+                                var fn = fnEl.GetString();
+                                if (!string.IsNullOrWhiteSpace(fn))
+                                {
+                                    tools.Add($"function:{fn}");
+                                }
+                            }
+
+                            foreach (var prop in element.EnumerateObject())
+                            {
+                                Walk(prop.Value);
+                            }
+
+                            break;
+                        }
+
+                    case JsonValueKind.Array:
+                        foreach (var item in element.EnumerateArray())
+                        {
+                            Walk(item);
+                        }
+                        break;
+                }
+            }
+
+            Walk(outputItems);
+        }
+
+        return (model, tools.OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
     public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger, IWebHostEnvironment environment)
     {
         _httpClient = httpClient;
@@ -151,7 +248,7 @@ public class FoundryChatService : IChatService
         }
     }
 
-    public async Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default)
+    public async Task<ChatServiceResult> SendMessageAsync(string message, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -162,7 +259,10 @@ public class FoundryChatService : IChatService
             if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName))
             {
                 _logger.LogError("Foundry endpoint or agent name configuration is missing");
-                return "申し訳ありません。エージェント設定がありません。";
+                return new ChatServiceResult(
+                    Text: "申し訳ありません。エージェント設定がありません。",
+                    Model: null,
+                    ToolsUsed: Array.Empty<string>());
             }
 
             if (string.IsNullOrWhiteSpace(apiVersion))
@@ -250,13 +350,18 @@ public class FoundryChatService : IChatService
 
             if (response is null)
             {
-                return "エージェントエラー: リクエストに失敗しました。";
+                return new ChatServiceResult(
+                    Text: "エージェントエラー: リクエストに失敗しました。",
+                    Model: null,
+                    ToolsUsed: Array.Empty<string>());
             }
             
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
                 _logger.LogInformation("Agent response received (api-version={ApiVersion}): {Response}", usedApiVersion, responseContent);
+
+                var (model, toolsUsed) = ExtractMetaFromResponse(responseContent);
                 
                 // Try to extract text from response
                 try
@@ -264,47 +369,71 @@ public class FoundryChatService : IChatService
                     var extracted = TryExtractResponseText(responseContent);
                     if (!string.IsNullOrWhiteSpace(extracted))
                     {
-                        return extracted;
+                        return new ChatServiceResult(
+                            Text: extracted,
+                            Model: model,
+                            ToolsUsed: toolsUsed);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning("Failed to parse JSON response: {Error}", ex.Message);
                 }
-                
-                return responseContent;
+
+                return new ChatServiceResult(
+                    Text: responseContent,
+                    Model: model,
+                    ToolsUsed: toolsUsed);
             }
             else
             {
                 var errorContent = lastErrorContent ?? await response.Content.ReadAsStringAsync();
                 _logger.LogError("Agent API error (api-version={ApiVersion}): {StatusCode} - {Error}", usedApiVersion, response.StatusCode, errorContent);
-                return $"エージェントエラー(api-version={usedApiVersion}): {response.StatusCode} - {errorContent}";
+                return new ChatServiceResult(
+                    Text: $"エージェントエラー(api-version={usedApiVersion}): {response.StatusCode} - {errorContent}",
+                    Model: null,
+                    ToolsUsed: Array.Empty<string>());
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("Chat request was cancelled by the client.");
-            return "キャンセルされました。";
+            return new ChatServiceResult(
+                Text: "キャンセルされました。",
+                Model: null,
+                ToolsUsed: Array.Empty<string>());
         }
         catch (OperationCanceledException)
         {
             _logger.LogWarning("Foundry call timed out after {TimeoutSeconds}s", FoundryRequestTimeout.TotalSeconds);
-            return $"エージェントがタイムアウトしました（{(int)FoundryRequestTimeout.TotalSeconds}秒）。";
+            return new ChatServiceResult(
+                Text: $"エージェントがタイムアウトしました（{(int)FoundryRequestTimeout.TotalSeconds}秒）。",
+                Model: null,
+                ToolsUsed: Array.Empty<string>());
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
             _logger.LogError("Azure authentication error: {Message}", ex.Message);
-            return $"認証エラー: {ex.Message}";
+            return new ChatServiceResult(
+                Text: $"認証エラー: {ex.Message}",
+                Model: null,
+                ToolsUsed: Array.Empty<string>());
         }
         catch (HttpRequestException ex)
         {
             _logger.LogError("Foundry API error: {Message}", ex.Message);
-            return $"エージェントに接続できません: {ex.Message}";
+            return new ChatServiceResult(
+                Text: $"エージェントに接続できません: {ex.Message}",
+                Model: null,
+                ToolsUsed: Array.Empty<string>());
         }
         catch (Exception ex)
         {
             _logger.LogError("Unexpected error: {Message}", ex.Message);
-            return $"エラーが発生しました: {ex.Message}";
+            return new ChatServiceResult(
+                Text: $"エラーが発生しました: {ex.Message}",
+                Model: null,
+                ToolsUsed: Array.Empty<string>());
         }
     }
 }

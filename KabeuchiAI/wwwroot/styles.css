@@ -117,6 +117,37 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+.meta-details {
+    max-width: 70%;
+    margin-top: 6px;
+    background: transparent;
+}
+
+.message.assistant .meta-details {
+    margin-left: 0;
+}
+
+.meta-details summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: #555;
+    user-select: none;
+}
+
+.meta-panel {
+    margin-top: 6px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.meta-row {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.4;
+}
+
 .message.system-message p {
     background: transparent;
     color: #999;

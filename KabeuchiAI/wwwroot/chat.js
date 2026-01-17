@@ -25,7 +25,10 @@ async function sendMessage() {
         }
 
         const data = await response.json();
-        appendMessage(data.response, 'assistant');
+        // Backward/forward compatibility: accept either { response } or { Response }
+        const responseText = (data && (data.response ?? data.Response)) ?? '';
+        const meta = data && (data.meta ?? data.Meta);
+        appendMessage(responseText, 'assistant', meta);
     } catch (error) {
         appendMessage(`エラーが発生しました: ${error.message}`, 'assistant');
     } finally {
@@ -35,7 +38,7 @@ async function sendMessage() {
 }
 
 // メッセージを追加
-function appendMessage(text, sender) {
+function appendMessage(text, sender, meta) {
     const chatBox = document.getElementById('chatBox');
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}`;
@@ -44,6 +47,36 @@ function appendMessage(text, sender) {
     p.textContent = text;
 
     messageDiv.appendChild(p);
+
+    // Assistant details panel (B): show model + tools actually used
+    if (sender === 'assistant' && meta) {
+        const model = meta.model ?? meta.Model;
+        const toolsUsed = meta.toolsUsed ?? meta.ToolsUsed;
+        const toolsList = Array.isArray(toolsUsed) ? toolsUsed.filter(Boolean) : [];
+
+        const details = document.createElement('details');
+        details.className = 'meta-details';
+
+        const summary = document.createElement('summary');
+        summary.textContent = '詳細';
+        details.appendChild(summary);
+
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'meta-panel';
+
+        const modelRow = document.createElement('div');
+        modelRow.className = 'meta-row';
+        modelRow.textContent = `モデル: ${model || '不明'}`;
+        metaDiv.appendChild(modelRow);
+
+        const toolsRow = document.createElement('div');
+        toolsRow.className = 'meta-row';
+        toolsRow.textContent = `使用ツール: ${toolsList.length ? toolsList.join(', ') : 'なし'}`;
+        metaDiv.appendChild(toolsRow);
+
+        details.appendChild(metaDiv);
+        messageDiv.appendChild(details);
+    }
     chatBox.appendChild(messageDiv);
 
     // スクロール下部へ
