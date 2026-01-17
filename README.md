@@ -14,7 +14,7 @@ AIを活用して、ビジネスアイデアに対するフィードバックや
 
 ## プロジェクト構成
 
-```
+```text
 Kabeuchi-AI/
 ├── KabeuchiAI/          # .NET 8 WebAPI プロジェクト
 ├── .github/
@@ -22,85 +22,93 @@ Kabeuchi-AI/
 └── README.md
 ```
 
-## 開発環境のセットアップ
+## 構成図（デプロイ）
 
-### 必要要件
+```mermaid
+flowchart TB
+  %% Build / Deploy
+  subgraph GitHub[GitHub]
+    repo[Repository]
+    gha[GitHub Actions（デプロイ）]
+    repo --> gha
+  end
 
-- .NET 8 SDK
+  subgraph Azure[Azure]
+    subgraph AppService[Azure App Service]
+      web[Web App（ASP.NET Core .NET 8）]
+      mi[Managed Identity]
+      web --- mi
+    end
 
-### ビルド・実行
+    entra[Microsoft Entra ID]
 
-```bash
-# プロジェクトディレクトリに移動
-cd KabeuchiAI
+    subgraph Foundry[Azure AI Foundry]
+      proj[Project Endpoint\n*.services.ai.azure.com/api/projects/...]
+      agent[Agent]
+      proj --> agent
+    end
 
-# パッケージの復元
-dotnet restore
+    externals[外部API/ツール（任意）]
+  end
 
-# ビルド
-dotnet build
+  gha -->|Deploy| web
 
-# 実行
-dotnet run
+  %% Runtime
+  user[利用者（スマホ/PC）] -->|HTTPS| web
+  web -->|静的配信 /wwwroot| ui[UI（HTML/CSS/JS）]
+  ui -->|POST /api/chat| web
+  ui -->|GET /api/diag| web
+
+  web -->|Token要求\nscope: https://ai.azure.com/.default| entra
+  mi -->|トークン取得| entra
+  web -->|POST /openai/responses\n?api-version=...| proj
+  agent -->|必要時| externals
 ```
 
-アプリケーションは `https://localhost:7272` または `http://localhost:5104` で起動します。
+## 今後の予定（ロードマップ）
 
-### テスト実行
+実装の優先順位は「ユーザーが迷わず使い始められる → 価値の出る機能を増やす → 認証/セキュリティ/運用基盤を固める → 利用状況を見える化して改善サイクルを回す」の順で進めます。
 
-```bash
-cd KabeuchiAI
-dotnet test
-```
+### 1) すぐに体験価値を上げる（短期）
 
-## CI/CD
+- 最初によくある質問（FAQ）を4つ程度パネル化し、ワンクリックで壁打ち開始
+  - 入力のハードルを下げて初回体験を改善
+- UI/UXの改善
+  - モバイル中心で「迷わない・押しやすい・読みやすい」を優先
+- 壁打ち結果のエクスポート（最終的に人間が仕上げできるフォーマット）
+  - 例: Markdown / PDF / 指定テンプレ（項目見出し固定）など
 
-GitHub Actionsを使用して、mainブランチへのpush/PR時に自動的にビルドとテストが実行されます。
+### 2) 思考整理の“見える化”とフィードバック強化（中期）
 
-### Azure App Serviceへの自動デプロイ
+- ビジネスプラン全体の進捗が分かるビュー
+  - 例: 事業概要/顧客/課題/解決策/競合/収益/実行計画…の充足度を可視化
+- 特定のビジネスコンテスト向けフィードバック
+  - 仕様書や評価観点（審査項目）を入力/選択できるようにし、その観点で質問・改善点を返す
 
-mainブランチへのpush時に、Azure App Serviceへ自動的にデプロイされます。
+### 3) アカウント・運用基盤を整備（中長期）
 
-#### セットアップ手順
+- 認証機能
+  - まずは「ログインして履歴を保存できる」状態を目標
+- セキュリティの改善
+  - 認証導入に合わせて、レート制限・入力検証・ログの取り扱い・秘密情報の保護を強化
+- GitHub Actionsに脆弱性チェック等を追加
+  - 依存関係の脆弱性検知、静的解析、セキュリティスキャンを自動化
 
-1. **Azure PortalでApp Serviceリソースを作成**
+### 4) 改善サイクル（計測と分析）（中長期）
 
-2. **Azure ADでアプリ登録を作成**
-   - Azure Portal > Azure Active Directory > アプリの登録 > 新規登録
-   - 任意の名前でアプリケーションを登録（例: `kabeuchi-ai-github-actions`）
-   - クライアントIDとテナントIDをメモ
-
-3. **フェデレーション資格情報の設定**
-   - 作成したアプリの登録 > 証明書とシークレット > フェデレーション資格情報
-   - 「資格情報の追加」をクリック
-   - フェデレーション資格情報のシナリオ: `GitHub Actions deploying Azure resources`
-   - 組織: GitHubのユーザー名またはOrg名（例: `ylearning86`）
-   - リポジトリ: リポジトリ名（例: `Kabeuchi-AI`）
-   - エンティティタイプ: `Branch`
-   - GitHub ブランチ名: `main`
-   - 名前: 任意（例: `github-actions-main-branch`）
-
-4. **AzureのRBACロールを設定**
-   - Azure Portal > App Service > アクセス制御(IAM)
-   - 「ロールの割り当ての追加」をクリック
-   - ロール: `Website Contributor` または `Contributor`
-   - メンバー: 手順2で作成したアプリを選択
-
-5. **GitHubシークレットの設定**
-   - GitHubリポジトリの Settings > Secrets and variables > Actions
-   - 以下のシークレットを追加:
-     - `AZURE_CLIENT_ID`: 手順2で取得したクライアントID
-     - `AZURE_TENANT_ID`: 手順2で取得したテナントID
-     - `AZURE_SUBSCRIPTION_ID`: AzureポータルのサブスクリプションID
-
-6. **ワークフローファイルの確認**
-   - 必要に応じて `.github/workflows/azure-appservice-deploy.yml` の `AZURE_WEBAPP_NAME` 環境変数をApp Service名に合わせて変更
+- どういったユーザーがどれくらい使ったかを把握する機能
+  - 認証後の利用状況（匿名/個別）や、機能別利用率を可視化して継続改善に繋げる
 
 ## ライセンス
 
-TBD
+MIT License（[LICENSE](LICENSE)）
 
 ## 貢献
 
 TBD
-# Test Deployment - 2026年 1月 16日 金曜日 16:08:00 TST
+
+## バージョン履歴
+
+- v0.1.0
+  - Foundry Agent を呼び出してレスポンスを返せる状態に到達
+  - モバイル表示の改善（チャットUIを画面下部/ビューポートに固定）
