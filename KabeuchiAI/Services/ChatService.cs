@@ -41,8 +41,8 @@ public class FoundryChatService : IChatService
             _logger.LogInformation($"Calling Foundry API with managed identity: {endpoint}");
 
             // マネージドIDを使用してアクセストークンを取得
-            var tokenRequestContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
-            var token = await _credential.GetTokenAsync(tokenRequestContext);
+            var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
+            var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
 
             // Foundry APIにメッセージを送信
             var url = $"{endpoint}/agents/{agentName}/run";
@@ -95,21 +95,6 @@ public class FoundryChatService : IChatService
         {
             _logger.LogError($"Azure authentication error: {ex.Message}");
             return $"認証エラー: {ex.Message}";
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError($"Foundry API error: {ex.Message}");
-            return $"エージェントに接続できません: {ex.Message}";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError($"Unexpected error: {ex.Message}");
-            return $"エラーが発生しました: {ex.Message}";
-        }
-    }
-}
-
-            return jsonResponse;
         }
         catch (HttpRequestException ex)
         {
