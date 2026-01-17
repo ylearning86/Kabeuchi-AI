@@ -2,8 +2,33 @@ using System.Text.Json;
 using Azure.Core;
 using Azure.Identity;
 using Azure.AI.Projects;
+using System.Threading;
 
 namespace KabeuchiAI.Services;
+
+// Custom TokenCredential wrapper that ensures correct scope for Azure AI
+public class AzureAITokenCredential : TokenCredential
+{
+    private readonly TokenCredential _innerCredential;
+    private static readonly string[] AzureAIScopes = new[] { "https://ai.azure.com/.default" };
+
+    public AzureAITokenCredential(TokenCredential innerCredential)
+    {
+        _innerCredential = innerCredential;
+    }
+
+    public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+    {
+        var context = new TokenRequestContext(AzureAIScopes);
+        return _innerCredential.GetToken(context, cancellationToken);
+    }
+
+    public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+    {
+        var context = new TokenRequestContext(AzureAIScopes);
+        return _innerCredential.GetTokenAsync(context, cancellationToken);
+    }
+}
 
 public interface IChatService
 {
@@ -57,8 +82,12 @@ public class FoundryChatService : IChatService
 
             _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity: {Endpoint}", endpoint);
 
-            var credential = _credential;
-            var projectClient = new AIProjectClient(new Uri(endpoint), subscriptionId, resourceGroup, projectName, credential);
+            // Wrap credential with correct Azure AI scope
+            var azureAICredential = new AzureAITokenCredential(_credential);
+            
+            var clientOptions = new AIProjectClientOptions();
+            
+            var projectClient = new AIProjectClient(new Uri(endpoint), subscriptionId, resourceGroup, projectName, azureAICredential, clientOptions);
             var agentsClient = projectClient.GetAgentsClient();
 
             var threadOptions = new AgentThreadCreationOptions
