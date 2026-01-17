@@ -50,10 +50,11 @@ public class FoundryChatService : IChatService
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity: {Endpoint}", endpoint);
+            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity");
 
             var credential = _credential;
-            var projectClient = new AIProjectClient(endpoint, credential);
+            var connectionString = _configuration["FoundryConfig:ConnectionString"];
+            var projectClient = new AIProjectClient(connectionString, credential);
             var agentsClient = projectClient.GetAgentsClient();
 
             var threadOptions = new AgentThreadCreationOptions
