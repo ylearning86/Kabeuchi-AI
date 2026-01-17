@@ -54,9 +54,12 @@ public class FoundryChatService : IChatService
             // マネージドIDを使用してアクセストークンを取得
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
-
             // サポートされている可能性のある API バージョンを試す
-            string[] apiVersions = new[] { "2024-10-01", "2024-09-01", "2024-08-01", "2024-07-01", "2024-06-01", "2024-05-01" };
+            string[] apiVersions = new[] { 
+                "2024-10-01-preview", "2024-09-01-preview", "2024-08-01-preview", 
+                "2024-07-01-preview", "2024-06-01-preview", "2024-05-01-preview",
+                "2024-10-01", "2024-09-01", "2024-08-01", "2024-07-01", "2024-06-01", "2024-05-01"
+            };
             
             foreach (var apiVersion in apiVersions)
             {
