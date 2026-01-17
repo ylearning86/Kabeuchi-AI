@@ -2,7 +2,6 @@ using System.Text.Json;
 using Azure.Core;
 using Azure.Identity;
 using Azure.AI.Projects;
-using Azure.AI.Projects.OpenAI;
 
 namespace KabeuchiAI.Services;
 
@@ -45,52 +44,73 @@ public class FoundryChatService : IChatService
             var endpoint = _configuration["FoundryConfig:Endpoint"];
             var agentName = _configuration["FoundryConfig:AgentName"];
 
-            if (string.IsNullOrEmpty(endpoint))
+            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName))
             {
-                _logger.LogError("Foundry endpoint configuration is missing");
+                _logger.LogError("Foundry endpoint or agent name configuration is missing");
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation($"Calling Foundry agent via SDK with managed identity: {endpoint}");
+            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity: {Endpoint}", endpoint);
 
-            // Foundry v1 SDK 経由で呼び出し（API バージョン指定不要）
             var credential = _credential;
-            var projectClient = new AIProjectClient(new Uri(endpoint), credential);
+            var projectClient = new AIProjectClient(endpoint, credential);
+            var agentsClient = projectClient.GetAgentsClient();
 
-            var conversationResult = projectClient.OpenAI.Conversations.CreateProjectConversation();
-            var conversation = conversationResult.Value;
-            _logger.LogInformation("Conversation created: {ConversationId}", conversation.Id);
-
-            var responsesClient = projectClient.OpenAI.GetProjectResponsesClientForAgent(
-                defaultAgent: agentName,
-                defaultConversationId: conversation.Id);
-
-            var responseResult = await Task.Run(() => responsesClient.CreateResponse(message), CancellationToken.None);
-            var response = responseResult.Value;
-
-            var outputText = response.GetOutputText();
-            if (!string.IsNullOrWhiteSpace(outputText))
+            var threadOptions = new AgentThreadCreationOptions
             {
-                return outputText;
+                Messages =
+                {
+                    new ThreadMessageOptions(MessageRole.User, message)
+                }
+            };
+
+            // Use the public overload: CreateThreadAndRunAsync(agentId, threadOptions, ...)
+            var run = await agentsClient.CreateThreadAndRunAsync(agentName, threadOptions);
+            var runValue = run.Value;
+
+            while (runValue.Status == RunStatus.Queued || runValue.Status == RunStatus.InProgress)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+                runValue = (await agentsClient.GetRunAsync(runValue.ThreadId, runValue.Id)).Value;
             }
 
-            // 念のため raw JSON も返せるように
-            var rawJson = JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = false });
-            return rawJson;
+            var messages = (await agentsClient.GetMessagesAsync(runValue.ThreadId)).Value;
+            var latest = messages.Data.LastOrDefault();
+
+            // Extract text from ContentItems: cast to MessageTextContent to access the Text property
+            string? text = null;
+            if (latest?.ContentItems != null)
+            {
+                foreach (var content in latest.ContentItems)
+                {
+                    if (content is MessageTextContent textContent)
+                    {
+                        text = textContent.Text;
+                        break;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+
+            return JsonSerializer.Serialize(latest, new JsonSerializerOptions { WriteIndented = false });
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
-            _logger.LogError($"Azure authentication error: {ex.Message}");
+            _logger.LogError("Azure authentication error: {Message}", ex.Message);
             return $"認証エラー: {ex.Message}";
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError($"Foundry API error: {ex.Message}");
+            _logger.LogError("Foundry API error: {Message}", ex.Message);
             return $"エージェントに接続できません: {ex.Message}";
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Unexpected error: {ex.Message}");
+            _logger.LogError("Unexpected error: {Message}", ex.Message);
             return $"エラーが発生しました: {ex.Message}";
         }
     }
