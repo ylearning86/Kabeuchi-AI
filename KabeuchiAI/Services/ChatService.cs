@@ -83,10 +83,10 @@ public class FoundryChatService : IChatService
 
             // Create HTTP client with Bearer token
             _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.3");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.4");
 
-            // Call direct HTTP endpoint
-            var url = $"{endpoint}/ai/agents/{agentName}/messages";
+            // Call direct HTTP endpoint with api-version query parameter
+            var url = $"{endpoint}/ai/agents/{agentName}/messages?api-version=2024-07-01-preview";
             var requestBody = new { message };
             var content = new StringContent(JsonSerializer.Serialize(requestBody), System.Text.Encoding.UTF8, "application/json");
             
