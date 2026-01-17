@@ -47,9 +47,10 @@ flowchart TB
       agent[Agent]
       proj --> agent
     end
-
-    externals[外部API/ツール（任意）]
   end
+
+  %% External
+  externals[外部API/ツール（任意）]
 
   gha -->|Deploy| web
 
