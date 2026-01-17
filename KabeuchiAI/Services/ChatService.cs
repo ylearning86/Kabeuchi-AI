@@ -42,19 +42,23 @@ public class FoundryChatService : IChatService
         try
         {
             var endpoint = _configuration["FoundryConfig:Endpoint"];
+            var subscriptionId = _configuration["FoundryConfig:SubscriptionId"];
+            var resourceGroup = _configuration["FoundryConfig:ResourceGroup"];
+            var projectName = _configuration["FoundryConfig:ProjectName"];
             var agentName = _configuration["FoundryConfig:AgentName"];
 
-            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName))
+            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(subscriptionId) || 
+                string.IsNullOrEmpty(resourceGroup) || string.IsNullOrEmpty(projectName) || 
+                string.IsNullOrEmpty(agentName))
             {
-                _logger.LogError("Foundry endpoint or agent name configuration is missing");
+                _logger.LogError("Foundry configuration is missing required parameters");
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity");
+            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity: {Endpoint}", endpoint);
 
             var credential = _credential;
-            var connectionString = _configuration["FoundryConfig:ConnectionString"];
-            var projectClient = new AIProjectClient(connectionString, credential);
+            var projectClient = new AIProjectClient(new Uri(endpoint), subscriptionId, resourceGroup, projectName, credential);
             var agentsClient = projectClient.GetAgentsClient();
 
             var threadOptions = new AgentThreadCreationOptions
