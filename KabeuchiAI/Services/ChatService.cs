@@ -82,6 +82,22 @@ public class FoundryChatService : IChatService
                 apiVersion = "2024-10-21";
             }
 
+            // Try configured version first, then fall back to other known/suspected versions.
+            // (We keep this list small and deterministic for troubleshooting.)
+            var apiVersionsToTry = new List<string>
+            {
+                apiVersion,
+                "2024-08-01-preview",
+                "2024-07-01-preview",
+                "2024-06-01",
+                "2024-05-01-preview",
+            };
+
+            apiVersionsToTry = apiVersionsToTry
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             _logger.LogInformation("Calling Foundry agent via OpenAI-compatible responses API: {Endpoint}", endpoint);
 
             // Get token directly for https://ai.azure.com scope
@@ -92,7 +108,6 @@ public class FoundryChatService : IChatService
 
             // Use OpenAI-compatible responses API endpoint (requires api-version)
             // Format: {PROJECT_ENDPOINT}/openai/responses?api-version=YYYY-MM-DD
-            var url = $"{endpointBase}/openai/responses?api-version={Uri.EscapeDataString(apiVersion)}";
             var requestBody = new
             {
                 input = message,
@@ -109,21 +124,51 @@ public class FoundryChatService : IChatService
             var jsonContent = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            HttpResponseMessage? response = null;
+            string? lastErrorContent = null;
+            string? usedApiVersion = null;
+
+            foreach (var candidateApiVersion in apiVersionsToTry)
             {
-                Content = content,
-            };
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.9");
+                usedApiVersion = candidateApiVersion;
+                var url = $"{endpointBase}/openai/responses?api-version={Uri.EscapeDataString(candidateApiVersion)}";
 
-            _logger.LogInformation("POST {Url}", url);
+                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json"),
+                };
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.10");
 
-            var response = await _httpClient.SendAsync(request);
+                _logger.LogInformation("POST {Url}", url);
+
+                response = await _httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    break;
+                }
+
+                lastErrorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Foundry call failed (api-version={ApiVersion}) Status={StatusCode} Body={Body}", candidateApiVersion, response.StatusCode, lastErrorContent);
+
+                // Only retry on version-related errors.
+                if (lastErrorContent is null ||
+                    (!lastErrorContent.Contains("API version not supported", StringComparison.OrdinalIgnoreCase) &&
+                     !lastErrorContent.Contains("Missing required query parameter: api-version", StringComparison.OrdinalIgnoreCase)))
+                {
+                    break;
+                }
+            }
+
+            if (response is null)
+            {
+                return "エージェントエラー: リクエストに失敗しました。";
+            }
             
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation("Agent response received: {Response}", responseContent);
+                _logger.LogInformation("Agent response received (api-version={ApiVersion}): {Response}", usedApiVersion, responseContent);
                 
                 // Try to extract text from response
                 try
@@ -179,9 +224,9 @@ public class FoundryChatService : IChatService
             }
             else
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Agent API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                return $"エージェントエラー: {response.StatusCode} - {errorContent}";
+                var errorContent = lastErrorContent ?? await response.Content.ReadAsStringAsync();
+                _logger.LogError("Agent API error (api-version={ApiVersion}): {StatusCode} - {Error}", usedApiVersion, response.StatusCode, errorContent);
+                return $"エージェントエラー(api-version={usedApiVersion}): {response.StatusCode} - {errorContent}";
             }
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
