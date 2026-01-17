@@ -75,22 +75,24 @@ public class FoundryChatService : IChatService
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation("Calling Foundry agent via direct HTTP with managed identity: {Endpoint}", endpoint);
+            _logger.LogInformation("Calling Foundry agent via HTTP REST API with managed identity: {Endpoint}", endpoint);
 
             // Get token directly for https://ai.azure.com scope
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = _credential.GetToken(tokenRequestContext, default);
 
             // Create HTTP client with Bearer token
-            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.5");
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+            client.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.6");
 
-            // Call direct HTTP endpoint with api-version query parameter
-            var url = $"{endpoint}/ai/agents/{agentName}/messages?api-version=2024-12-01-preview";
-            var requestBody = new { message };
-            var content = new StringContent(JsonSerializer.Serialize(requestBody), System.Text.Encoding.UTF8, "application/json");
+            // Call REST API endpoint with correct api-version
+            // Format: {endpoint}/agent-service/agents/{agentName}/messages?api-version=2024-12-01-preview
+            var url = $"{endpoint}/agent-service/agents/{agentName}/messages?api-version=2024-12-01-preview";
+            var requestBody = JsonSerializer.Serialize(new { message });
+            var content = new StringContent(requestBody, System.Text.Encoding.UTF8, "application/json");
             
-            var response = await _httpClient.PostAsync(url, content);
+            var response = await client.PostAsync(url, content);
             
             if (response.IsSuccessStatusCode)
             {
@@ -98,17 +100,35 @@ public class FoundryChatService : IChatService
                 _logger.LogInformation("Agent response received: {Response}", responseContent);
                 
                 // Try to extract text from response
-                using var jsonDoc = JsonDocument.Parse(responseContent);
-                var root = jsonDoc.RootElement;
-                
-                if (root.TryGetProperty("content", out var contentElement) || 
-                    root.TryGetProperty("message", out contentElement) ||
-                    root.TryGetProperty("text", out contentElement))
+                try
                 {
-                    if (contentElement.ValueKind == JsonValueKind.String)
+                    using var jsonDoc = JsonDocument.Parse(responseContent);
+                    var root = jsonDoc.RootElement;
+                    
+                    // Try multiple possible field names
+                    if (root.TryGetProperty("output", out var outputElement))
                     {
-                        return contentElement.GetString() ?? responseContent;
+                        if (outputElement.ValueKind == JsonValueKind.String)
+                            return outputElement.GetString() ?? responseContent;
+                        if (outputElement.TryGetProperty("text", out var textElement))
+                            return textElement.GetString() ?? responseContent;
                     }
+                    
+                    if (root.TryGetProperty("text", out var textEl))
+                    {
+                        if (textEl.ValueKind == JsonValueKind.String)
+                            return textEl.GetString() ?? responseContent;
+                    }
+                    
+                    if (root.TryGetProperty("content", out var contentEl))
+                    {
+                        if (contentEl.ValueKind == JsonValueKind.String)
+                            return contentEl.GetString() ?? responseContent;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to parse JSON response: {Error}", ex.Message);
                 }
                 
                 return responseContent;
