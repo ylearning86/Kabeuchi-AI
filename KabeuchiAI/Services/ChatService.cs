@@ -75,7 +75,7 @@ public class FoundryChatService : IChatService
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation("Calling Foundry agent via HTTP REST API with managed identity: {Endpoint}", endpoint);
+            _logger.LogInformation("Calling Foundry agent via OpenAI-compatible responses API: {Endpoint}", endpoint);
 
             // Get token directly for https://ai.azure.com scope
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
@@ -84,13 +84,26 @@ public class FoundryChatService : IChatService
             // Create HTTP client with Bearer token
             using var client = new HttpClient();
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            client.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.6");
+            client.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.7");
 
-            // Call REST API endpoint with correct api-version
-            // Format: {endpoint}/agent-service/agents/{agentName}/messages?api-version=2024-12-01-preview
-            var url = $"{endpoint}/agent-service/agents/{agentName}/messages?api-version=2024-12-01-preview";
-            var requestBody = JsonSerializer.Serialize(new { message });
-            var content = new StringContent(requestBody, System.Text.Encoding.UTF8, "application/json");
+            // Use OpenAI-compatible responses API endpoint
+            // Format: {endpoint}/openai/responses
+            var url = $"{endpoint}/openai/responses";
+            var requestBody = new
+            {
+                input = message,
+                extra_body = new
+                {
+                    agent = new
+                    {
+                        name = agentName,
+                        type = "agent_reference"
+                    }
+                }
+            };
+            
+            var jsonContent = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
             
             var response = await client.PostAsync(url, content);
             
@@ -105,7 +118,32 @@ public class FoundryChatService : IChatService
                     using var jsonDoc = JsonDocument.Parse(responseContent);
                     var root = jsonDoc.RootElement;
                     
-                    // Try multiple possible field names
+                    // Check for output_text field (Foundry API format)
+                    if (root.TryGetProperty("output_text", out var outputTextElement))
+                    {
+                        var outputText = outputTextElement.GetString();
+                        if (!string.IsNullOrEmpty(outputText))
+                            return outputText;
+                    }
+                    
+                    // Check for choices array (OpenAI format)
+                    if (root.TryGetProperty("choices", out var choicesElement) && 
+                        choicesElement.ValueKind == JsonValueKind.Array &&
+                        choicesElement.GetArrayLength() > 0)
+                    {
+                        var firstChoice = choicesElement[0];
+                        if (firstChoice.TryGetProperty("message", out var messageElement))
+                        {
+                            if (messageElement.TryGetProperty("content", out var contentElement))
+                            {
+                                var contentText = contentElement.GetString();
+                                if (!string.IsNullOrEmpty(contentText))
+                                    return contentText;
+                            }
+                        }
+                    }
+                    
+                    // Fallback: try multiple field names
                     if (root.TryGetProperty("output", out var outputElement))
                     {
                         if (outputElement.ValueKind == JsonValueKind.String)
@@ -116,14 +154,7 @@ public class FoundryChatService : IChatService
                     
                     if (root.TryGetProperty("text", out var textEl))
                     {
-                        if (textEl.ValueKind == JsonValueKind.String)
-                            return textEl.GetString() ?? responseContent;
-                    }
-                    
-                    if (root.TryGetProperty("content", out var contentEl))
-                    {
-                        if (contentEl.ValueKind == JsonValueKind.String)
-                            return contentEl.GetString() ?? responseContent;
+                        return textEl.GetString() ?? responseContent;
                     }
                 }
                 catch (Exception ex)
