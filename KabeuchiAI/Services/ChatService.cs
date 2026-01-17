@@ -55,7 +55,7 @@ public class FoundryChatService : IChatService
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
 
-            // Foundry APIにメッセージを送信
+            // Foundry APIにメッセージを送信（API バージョンなしで試行、Foundry が決定する）
             var url = $"{endpoint}/agents/{agentName}/run";
             var request = new HttpRequestMessage(HttpMethod.Post, url)
             {
@@ -69,8 +69,10 @@ public class FoundryChatService : IChatService
             // Bearer tokenを使用
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
             request.Headers.Add("Accept", "application/json");
+            request.Headers.Add("User-Agent", "KabeuchiAI/1.0");
 
             _logger.LogInformation($"Calling URL: {url}");
+            _logger.LogInformation($"Token received: {token.Token.Substring(0, Math.Min(50, token.Token.Length))}...");
 
             var response = await _httpClient.SendAsync(request);
             
