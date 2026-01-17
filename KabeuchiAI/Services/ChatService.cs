@@ -67,70 +67,58 @@ public class FoundryChatService : IChatService
         try
         {
             var endpoint = _configuration["FoundryConfig:Endpoint"];
-            var subscriptionId = _configuration["FoundryConfig:SubscriptionId"];
-            var resourceGroup = _configuration["FoundryConfig:ResourceGroup"];
-            var projectName = _configuration["FoundryConfig:ProjectName"];
             var agentName = _configuration["FoundryConfig:AgentName"];
 
-            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(subscriptionId) || 
-                string.IsNullOrEmpty(resourceGroup) || string.IsNullOrEmpty(projectName) || 
-                string.IsNullOrEmpty(agentName))
+            if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName))
             {
-                _logger.LogError("Foundry configuration is missing required parameters");
+                _logger.LogError("Foundry endpoint or agent name configuration is missing");
                 return "申し訳ありません。エージェント設定がありません。";
             }
 
-            _logger.LogInformation("Calling Foundry agent via AgentsClient with managed identity: {Endpoint}", endpoint);
+            _logger.LogInformation("Calling Foundry agent via direct HTTP with managed identity: {Endpoint}", endpoint);
 
-            // Wrap credential with correct Azure AI scope
-            var azureAICredential = new AzureAITokenCredential(_credential);
+            // Get token directly for https://ai.azure.com scope
+            var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
+            var token = _credential.GetToken(tokenRequestContext, default);
+
+            // Create HTTP client with Bearer token
+            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.3");
+
+            // Call direct HTTP endpoint
+            var url = $"{endpoint}/ai/agents/{agentName}/messages";
+            var requestBody = new { message };
+            var content = new StringContent(JsonSerializer.Serialize(requestBody), System.Text.Encoding.UTF8, "application/json");
             
-            var clientOptions = new AIProjectClientOptions();
+            var response = await _httpClient.PostAsync(url, content);
             
-            var projectClient = new AIProjectClient(new Uri(endpoint), subscriptionId, resourceGroup, projectName, azureAICredential, clientOptions);
-            var agentsClient = projectClient.GetAgentsClient();
-
-            var threadOptions = new AgentThreadCreationOptions
+            if (response.IsSuccessStatusCode)
             {
-                Messages =
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation("Agent response received: {Response}", responseContent);
+                
+                // Try to extract text from response
+                using var jsonDoc = JsonDocument.Parse(responseContent);
+                var root = jsonDoc.RootElement;
+                
+                if (root.TryGetProperty("content", out var contentElement) || 
+                    root.TryGetProperty("message", out contentElement) ||
+                    root.TryGetProperty("text", out contentElement))
                 {
-                    new ThreadMessageOptions(MessageRole.User, message)
-                }
-            };
-
-            // Use the public overload: CreateThreadAndRunAsync(agentId, threadOptions, ...)
-            var run = await agentsClient.CreateThreadAndRunAsync(agentName, threadOptions);
-            var runValue = run.Value;
-
-            while (runValue.Status == RunStatus.Queued || runValue.Status == RunStatus.InProgress)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(500));
-                runValue = (await agentsClient.GetRunAsync(runValue.ThreadId, runValue.Id)).Value;
-            }
-
-            var messages = (await agentsClient.GetMessagesAsync(runValue.ThreadId)).Value;
-            var latest = messages.Data.LastOrDefault();
-
-            // Extract text from ContentItems: cast to MessageTextContent to access the Text property
-            string? text = null;
-            if (latest?.ContentItems != null)
-            {
-                foreach (var content in latest.ContentItems)
-                {
-                    if (content is MessageTextContent textContent)
+                    if (contentElement.ValueKind == JsonValueKind.String)
                     {
-                        text = textContent.Text;
-                        break;
+                        return contentElement.GetString() ?? responseContent;
                     }
                 }
+                
+                return responseContent;
             }
-
-            if (!string.IsNullOrWhiteSpace(text))
+            else
             {
-                return text;
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Agent API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return $"エージェントエラー: {response.StatusCode} - {errorContent}";
             }
-
-            return JsonSerializer.Serialize(latest, new JsonSerializerOptions { WriteIndented = false });
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
