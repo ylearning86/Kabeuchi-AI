@@ -44,52 +44,67 @@ public class FoundryChatService : IChatService
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = await _credential.GetTokenAsync(tokenRequestContext, CancellationToken.None);
 
-            // Foundry APIにメッセージを送信
-            var url = $"{endpoint}/agents/{agentName}/run?api-version=2024-05-01-preview";
-            var request = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(
-                    $$"""{"userInput":"{{message}}", "sessionId":"{{Guid.NewGuid()}}"}""",
-                    System.Text.Encoding.UTF8,
-                    "application/json"
-                )
-            };
-
-            // Bearer tokenを使用
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            request.Headers.Add("Accept", "application/json");
-
-            _logger.LogInformation($"Calling URL: {url}");
-
-            var response = await _httpClient.SendAsync(request);
+            // サポートされている可能性のある API バージョンを試す
+            string[] apiVersions = new[] { "2024-10-01-preview", "2024-08-01-preview", "2024-06-01-preview", "2024-05-01-preview" };
             
-            _logger.LogInformation($"Response status: {response.StatusCode}");
-
-            if (!response.IsSuccessStatusCode)
+            foreach (var apiVersion in apiVersions)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Foundry API error: {response.StatusCode} - {errorContent}");
-                return $"エージェントエラー: {response.StatusCode} {errorContent}";
+                var url = $"{endpoint}/agents/{agentName}/run?api-version={apiVersion}";
+                var request = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(
+                        $$"""{"userInput":"{{message}}", "sessionId":"{{Guid.NewGuid()}}"}""",
+                        System.Text.Encoding.UTF8,
+                        "application/json"
+                    )
+                };
+
+                // Bearer tokenを使用
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+                request.Headers.Add("Accept", "application/json");
+
+                _logger.LogInformation($"Trying API version {apiVersion}: {url}");
+
+                var response = await _httpClient.SendAsync(request);
+                
+                _logger.LogInformation($"Response status: {response.StatusCode} for api-version={apiVersion}");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogWarning($"API version {apiVersion} failed: {response.StatusCode} - {errorContent}");
+                    
+                    // API version not supported エラーの場合は次のバージョンを試す
+                    if (response.StatusCode == System.Net.HttpStatusCode.BadRequest && errorContent.Contains("API version not supported"))
+                    {
+                        continue;
+                    }
+                    
+                    // それ以外のエラーはここで返す
+                    return $"エージェントエラー: {response.StatusCode} {errorContent}";
+                }
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation($"Response: {jsonResponse}");
+
+                var jsonDocument = JsonDocument.Parse(jsonResponse);
+                var root = jsonDocument.RootElement;
+
+                // レスポンスから応答テキストを抽出
+                if (root.TryGetProperty("output", out var output))
+                {
+                    return output.GetString() ?? "応答を処理できませんでした。";
+                }
+
+                if (root.TryGetProperty("response", out var responseProperty))
+                {
+                    return responseProperty.GetString() ?? "応答を処理できませんでした。";
+                }
+
+                return jsonResponse;
             }
 
-            var jsonResponse = await response.Content.ReadAsStringAsync();
-            _logger.LogInformation($"Response: {jsonResponse}");
-
-            var jsonDocument = JsonDocument.Parse(jsonResponse);
-            var root = jsonDocument.RootElement;
-
-            // レスポンスから応答テキストを抽出
-            if (root.TryGetProperty("output", out var output))
-            {
-                return output.GetString() ?? "応答を処理できませんでした。";
-            }
-
-            if (root.TryGetProperty("response", out var responseProperty))
-            {
-                return responseProperty.GetString() ?? "応答を処理できませんでした。";
-            }
-
-            return jsonResponse;
+            return "申し訳ありません。サポートされているAPIバージョンが見つかりません。";
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
