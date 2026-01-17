@@ -68,11 +68,18 @@ public class FoundryChatService : IChatService
         {
             var endpoint = _configuration["FoundryConfig:Endpoint"];
             var agentName = _configuration["FoundryConfig:AgentName"];
+            var apiVersion = _configuration["FoundryConfig:ApiVersion"];
 
             if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(agentName))
             {
                 _logger.LogError("Foundry endpoint or agent name configuration is missing");
                 return "申し訳ありません。エージェント設定がありません。";
+            }
+
+            if (string.IsNullOrWhiteSpace(apiVersion))
+            {
+                // Default to a commonly supported Azure OpenAI Responses API version.
+                apiVersion = "2024-10-21";
             }
 
             _logger.LogInformation("Calling Foundry agent via OpenAI-compatible responses API: {Endpoint}", endpoint);
@@ -81,14 +88,11 @@ public class FoundryChatService : IChatService
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
             var token = _credential.GetToken(tokenRequestContext, default);
 
-            // Create HTTP client with Bearer token
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-            client.DefaultRequestHeaders.Add("User-Agent", "KabeuchiAI/v0.0.7");
+            var endpointBase = endpoint.TrimEnd('/');
 
-            // Use OpenAI-compatible responses API endpoint
-            // Format: {endpoint}/openai/responses
-            var url = $"{endpoint}/openai/responses";
+            // Use OpenAI-compatible responses API endpoint (requires api-version)
+            // Format: {PROJECT_ENDPOINT}/openai/responses?api-version=YYYY-MM-DD
+            var url = $"{endpointBase}/openai/responses?api-version={Uri.EscapeDataString(apiVersion)}";
             var requestBody = new
             {
                 input = message,
@@ -104,8 +108,17 @@ public class FoundryChatService : IChatService
             
             var jsonContent = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
-            
-            var response = await client.PostAsync(url, content);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = content,
+            };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+            request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.8");
+
+            _logger.LogInformation("POST {Url}", url);
+
+            var response = await _httpClient.SendAsync(request);
             
             if (response.IsSuccessStatusCode)
             {
