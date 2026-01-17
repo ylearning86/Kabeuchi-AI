@@ -1,5 +1,12 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// ポート設定（開発環境では 5000、本番環境ではランダムポート）
+var port = builder.Environment.IsDevelopment() ? 5000 : 0;
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenLocalhost(port);
+});
+
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();

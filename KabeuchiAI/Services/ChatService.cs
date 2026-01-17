@@ -15,14 +15,25 @@ public class FoundryChatService : IChatService
     private readonly IConfiguration _configuration;
     private readonly ILogger<FoundryChatService> _logger;
     private readonly TokenCredential _credential;
+    private readonly IWebHostEnvironment _environment;
 
-    public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger)
+    public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger, IWebHostEnvironment environment)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _logger = logger;
-        // マネージドIDで認証
-        _credential = new DefaultAzureCredential();
+        _environment = environment;
+        // 開発環境では AzureCliCredential、本番環境では DefaultAzureCredential（マネージド ID）を使用
+        if (environment.IsDevelopment())
+        {
+            _credential = new AzureCliCredential();
+            _logger.LogInformation("Using AzureCliCredential for development");
+        }
+        else
+        {
+            _credential = new DefaultAzureCredential();
+            _logger.LogInformation("Using DefaultAzureCredential (managed identity) for production");
+        }
     }
 
     public async Task<string> SendMessageAsync(string message)
