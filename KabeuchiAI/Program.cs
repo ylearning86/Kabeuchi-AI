@@ -61,7 +61,7 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 
     return Results.Ok(new
     {
-        appVersion = "0.0.12",
+        appVersion = "0.0.13",
         environment = env.EnvironmentName,
         foundry = new
         {

@@ -45,6 +45,93 @@ public class FoundryChatService : IChatService
 
     private static readonly TimeSpan FoundryRequestTimeout = TimeSpan.FromSeconds(30);
 
+    private static string? TryExtractResponseText(string responseContent)
+    {
+        if (string.IsNullOrWhiteSpace(responseContent))
+        {
+            return null;
+        }
+
+        using var jsonDoc = JsonDocument.Parse(responseContent);
+        var root = jsonDoc.RootElement;
+
+        // Some services may return a top-level output_text
+        if (root.TryGetProperty("output_text", out var outputTextElement) && outputTextElement.ValueKind == JsonValueKind.String)
+        {
+            var outputText = outputTextElement.GetString();
+            if (!string.IsNullOrWhiteSpace(outputText))
+            {
+                return outputText;
+            }
+        }
+
+        // Azure OpenAI / Foundry Responses API commonly returns: output: [ { type: "message", content: [ { type: "output_text", text: "..." } ] } ]
+        if (root.TryGetProperty("output", out var outputItems) && outputItems.ValueKind == JsonValueKind.Array)
+        {
+            var texts = new List<string>();
+
+            foreach (var item in outputItems.EnumerateArray())
+            {
+                if (!item.TryGetProperty("content", out var contentItems) || contentItems.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var part in contentItems.EnumerateArray())
+                {
+                    string? partType = null;
+                    if (part.TryGetProperty("type", out var typeElement) && typeElement.ValueKind == JsonValueKind.String)
+                    {
+                        partType = typeElement.GetString();
+                    }
+
+                    if (part.TryGetProperty("text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
+                    {
+                        var text = textElement.GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            texts.Add(text);
+                        }
+                    }
+                    else if (string.Equals(partType, "output_text", StringComparison.OrdinalIgnoreCase) && part.TryGetProperty("output_text", out var nestedOutputText) && nestedOutputText.ValueKind == JsonValueKind.String)
+                    {
+                        var text = nestedOutputText.GetString();
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            texts.Add(text);
+                        }
+                    }
+                }
+            }
+
+            var joined = string.Join("\n", texts).Trim();
+            if (!string.IsNullOrWhiteSpace(joined))
+            {
+                return joined;
+            }
+        }
+
+        // Legacy/other formats
+        if (root.TryGetProperty("choices", out var choicesElement) &&
+            choicesElement.ValueKind == JsonValueKind.Array &&
+            choicesElement.GetArrayLength() > 0)
+        {
+            var firstChoice = choicesElement[0];
+            if (firstChoice.TryGetProperty("message", out var messageElement) &&
+                messageElement.TryGetProperty("content", out var contentElement) &&
+                contentElement.ValueKind == JsonValueKind.String)
+            {
+                var contentText = contentElement.GetString();
+                if (!string.IsNullOrWhiteSpace(contentText))
+                {
+                    return contentText;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger, IWebHostEnvironment environment)
     {
         _httpClient = httpClient;
@@ -139,7 +226,7 @@ public class FoundryChatService : IChatService
                     Content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json"),
                 };
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.12");
+                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.13");
 
                 _logger.LogInformation("POST {Url}", url);
 
@@ -174,46 +261,10 @@ public class FoundryChatService : IChatService
                 // Try to extract text from response
                 try
                 {
-                    using var jsonDoc = JsonDocument.Parse(responseContent);
-                    var root = jsonDoc.RootElement;
-                    
-                    // Check for output_text field (Foundry API format)
-                    if (root.TryGetProperty("output_text", out var outputTextElement))
+                    var extracted = TryExtractResponseText(responseContent);
+                    if (!string.IsNullOrWhiteSpace(extracted))
                     {
-                        var outputText = outputTextElement.GetString();
-                        if (!string.IsNullOrEmpty(outputText))
-                            return outputText;
-                    }
-                    
-                    // Check for choices array (OpenAI format)
-                    if (root.TryGetProperty("choices", out var choicesElement) && 
-                        choicesElement.ValueKind == JsonValueKind.Array &&
-                        choicesElement.GetArrayLength() > 0)
-                    {
-                        var firstChoice = choicesElement[0];
-                        if (firstChoice.TryGetProperty("message", out var messageElement))
-                        {
-                            if (messageElement.TryGetProperty("content", out var contentElement))
-                            {
-                                var contentText = contentElement.GetString();
-                                if (!string.IsNullOrEmpty(contentText))
-                                    return contentText;
-                            }
-                        }
-                    }
-                    
-                    // Fallback: try multiple field names
-                    if (root.TryGetProperty("output", out var outputElement))
-                    {
-                        if (outputElement.ValueKind == JsonValueKind.String)
-                            return outputElement.GetString() ?? responseContent;
-                        if (outputElement.TryGetProperty("text", out var textElement))
-                            return textElement.GetString() ?? responseContent;
-                    }
-                    
-                    if (root.TryGetProperty("text", out var textEl))
-                    {
-                        return textEl.GetString() ?? responseContent;
+                        return extracted;
                     }
                 }
                 catch (Exception ex)
