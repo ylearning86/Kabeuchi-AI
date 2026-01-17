@@ -13,7 +13,10 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Add Chat Service
-builder.Services.AddHttpClient<KabeuchiAI.Services.IChatService, KabeuchiAI.Services.FoundryChatService>();
+builder.Services.AddHttpClient<KabeuchiAI.Services.IChatService, KabeuchiAI.Services.FoundryChatService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(35);
+});
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", builder =>
@@ -48,7 +51,7 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
     var apiVersion = config["FoundryConfig:ApiVersion"];
     if (string.IsNullOrWhiteSpace(apiVersion))
     {
-        apiVersion = "2024-10-21";
+        apiVersion = "2025-11-15-preview";
     }
 
     var agentName = config["FoundryConfig:AgentName"] ?? string.Empty;
@@ -58,7 +61,7 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 
     return Results.Ok(new
     {
-        appVersion = "0.0.10",
+        appVersion = "0.0.12",
         environment = env.EnvironmentName,
         foundry = new
         {
@@ -73,12 +76,12 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 .WithOpenApi();
 
 // Chat API endpoint
-app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatService chatService) =>
+app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatService chatService, HttpContext http) =>
 {
     if (string.IsNullOrEmpty(request.Message))
         return Results.BadRequest("メッセージが空です");
 
-    var response = await chatService.SendMessageAsync(request.Message);
+    var response = await chatService.SendMessageAsync(request.Message, http.RequestAborted);
     return Results.Ok(new ChatResponse { Response = response });
 })
 .WithName("SendChat")

@@ -32,7 +32,7 @@ public class AzureAITokenCredential : TokenCredential
 
 public interface IChatService
 {
-    Task<string> SendMessageAsync(string message);
+    Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default);
 }
 
 public class FoundryChatService : IChatService
@@ -42,6 +42,8 @@ public class FoundryChatService : IChatService
     private readonly ILogger<FoundryChatService> _logger;
     private readonly TokenCredential _credential;
     private readonly IWebHostEnvironment _environment;
+
+    private static readonly TimeSpan FoundryRequestTimeout = TimeSpan.FromSeconds(30);
 
     public FoundryChatService(HttpClient httpClient, IConfiguration configuration, ILogger<FoundryChatService> logger, IWebHostEnvironment environment)
     {
@@ -62,7 +64,7 @@ public class FoundryChatService : IChatService
         }
     }
 
-    public async Task<string> SendMessageAsync(string message)
+    public async Task<string> SendMessageAsync(string message, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -78,8 +80,8 @@ public class FoundryChatService : IChatService
 
             if (string.IsNullOrWhiteSpace(apiVersion))
             {
-                // Default to a commonly supported Azure OpenAI Responses API version.
-                apiVersion = "2024-10-21";
+                // Default to a current Azure AI Foundry Agents API version.
+                apiVersion = "2025-11-15-preview";
             }
 
             // Try configured version first, then fall back to other known/suspected versions.
@@ -87,10 +89,9 @@ public class FoundryChatService : IChatService
             var apiVersionsToTry = new List<string>
             {
                 apiVersion,
-                "2024-08-01-preview",
-                "2024-07-01-preview",
-                "2024-06-01",
-                "2024-05-01-preview",
+                "2025-11-15-preview",
+                "2025-04-01-preview",
+                "preview",
             };
 
             apiVersionsToTry = apiVersionsToTry
@@ -102,7 +103,7 @@ public class FoundryChatService : IChatService
 
             // Get token directly for https://ai.azure.com scope
             var tokenRequestContext = new TokenRequestContext(new[] { "https://ai.azure.com/.default" });
-            var token = _credential.GetToken(tokenRequestContext, default);
+            var token = await _credential.GetTokenAsync(tokenRequestContext, cancellationToken);
 
             var endpointBase = endpoint.TrimEnd('/');
 
@@ -111,13 +112,10 @@ public class FoundryChatService : IChatService
             var requestBody = new
             {
                 input = message,
-                extra_body = new
+                agent = new
                 {
-                    agent = new
-                    {
-                        name = agentName,
-                        type = "agent_reference"
-                    }
+                    name = agentName,
+                    type = "agent_reference"
                 }
             };
             
@@ -127,6 +125,9 @@ public class FoundryChatService : IChatService
             HttpResponseMessage? response = null;
             string? lastErrorContent = null;
             string? usedApiVersion = null;
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(FoundryRequestTimeout);
 
             foreach (var candidateApiVersion in apiVersionsToTry)
             {
@@ -138,11 +139,11 @@ public class FoundryChatService : IChatService
                     Content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json"),
                 };
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.10");
+                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.0.12");
 
                 _logger.LogInformation("POST {Url}", url);
 
-                response = await _httpClient.SendAsync(request);
+                response = await _httpClient.SendAsync(request, timeoutCts.Token);
                 if (response.IsSuccessStatusCode)
                 {
                     break;
@@ -228,6 +229,16 @@ public class FoundryChatService : IChatService
                 _logger.LogError("Agent API error (api-version={ApiVersion}): {StatusCode} - {Error}", usedApiVersion, response.StatusCode, errorContent);
                 return $"エージェントエラー(api-version={usedApiVersion}): {response.StatusCode} - {errorContent}";
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Chat request was cancelled by the client.");
+            return "キャンセルされました。";
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Foundry call timed out after {TimeoutSeconds}s", FoundryRequestTimeout.TotalSeconds);
+            return $"エージェントがタイムアウトしました（{(int)FoundryRequestTimeout.TotalSeconds}秒）。";
         }
         catch (Azure.Identity.AuthenticationFailedException ex)
         {
