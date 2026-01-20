@@ -166,13 +166,24 @@ function showThinkingMessage() {
 
     const content = document.createElement('div');
     content.className = 'message-content';
-    content.textContent = 'AIが考え中…';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'thinking-bubble';
+    bubble.setAttribute('role', 'status');
+    bubble.setAttribute('aria-live', 'polite');
+
+    const label = document.createElement('span');
+    label.className = 'thinking-label';
+    label.textContent = 'AIが考え中';
 
     const dots = document.createElement('span');
     dots.className = 'thinking-dots';
     dots.setAttribute('aria-hidden', 'true');
-    dots.textContent = '…';
-    content.appendChild(dots);
+    dots.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+
+    bubble.appendChild(label);
+    bubble.appendChild(dots);
+    content.appendChild(bubble);
 
     messageDiv.appendChild(content);
     chatBox.appendChild(messageDiv);
