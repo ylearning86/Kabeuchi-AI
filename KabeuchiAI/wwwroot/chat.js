@@ -43,10 +43,23 @@ function appendMessage(text, sender, meta) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}`;
 
-    const p = document.createElement('p');
-    p.textContent = text;
+    const content = document.createElement('div');
+    content.className = 'message-content';
 
-    messageDiv.appendChild(p);
+    if (sender === 'assistant') {
+        const formatted = formatAssistantText(text);
+        // If markdown libs are available, render markdown safely; otherwise fall back to plain text.
+        if (window.marked && window.DOMPurify) {
+            const html = window.marked.parse(formatted, { breaks: true, gfm: true });
+            content.innerHTML = window.DOMPurify.sanitize(html);
+        } else {
+            content.textContent = formatted;
+        }
+    } else {
+        content.textContent = text;
+    }
+
+    messageDiv.appendChild(content);
 
     // Assistant details panel (B): show model + tools actually used
     if (sender === 'assistant' && meta) {
@@ -81,6 +94,25 @@ function appendMessage(text, sender, meta) {
 
     // スクロール下部へ
     chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// Assistant応答の“読みやすさ”を上げる軽い整形
+// - 単一行に潰れがちな「番号付きステップ」を改行して見やすく
+// - 既に整形されている場合は極力崩さない
+function formatAssistantText(raw) {
+    if (raw == null) return '';
+    let text = String(raw).replace(/\r\n/g, '\n').trim();
+    if (text.length === 0) return '';
+
+    // 例: 「...でしょう。 1. ... 2. ...」を段落 + リストに見えるように
+    text = text.replace(/([。！？])\s+(\d+)\.\s+/g, '$1\n\n$2. ');
+
+    // 文中の連番も、前が改行でない場合は改行に寄せる
+    text = text.replace(/\s+(\d+)\.\s+(?=\*\*|[^\n])/g, '\n$1. ');
+
+    // 過剰な空行を抑制
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text;
 }
 
 // Enterキーで送信

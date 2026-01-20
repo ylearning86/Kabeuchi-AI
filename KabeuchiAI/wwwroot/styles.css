@@ -96,7 +96,7 @@ body {
     justify-content: center;
 }
 
-.message p {
+.message .message-content {
     max-width: 70%;
     padding: 12px 15px;
     border-radius: 12px;
@@ -105,13 +105,13 @@ body {
     font-size: 14px;
 }
 
-.message.user p {
+.message.user .message-content {
     background: #667eea;
     color: white;
     border-bottom-right-radius: 4px;
 }
 
-.message.assistant p {
+.message.assistant .message-content {
     background: #e9ecef;
     color: #333;
     border-bottom-left-radius: 4px;
@@ -148,11 +148,54 @@ body {
     line-height: 1.4;
 }
 
-.message.system-message p {
+.message.system-message .message-content {
     background: transparent;
     color: #999;
     font-size: 13px;
     font-style: italic;
+}
+
+/* Markdown表示の整形 */
+.message .message-content > :first-child {
+    margin-top: 0;
+}
+
+.message .message-content > :last-child {
+    margin-bottom: 0;
+}
+
+.message .message-content p {
+    margin: 0.4em 0;
+}
+
+.message .message-content ul,
+.message .message-content ol {
+    margin: 0.4em 0;
+    padding-left: 1.2em;
+}
+
+.message .message-content li {
+    margin: 0.25em 0;
+}
+
+.message .message-content code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.95em;
+    padding: 0.1em 0.35em;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.message .message-content pre {
+    overflow: auto;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.message .message-content pre code {
+    background: transparent;
+    padding: 0;
 }
 
 .input-area {
