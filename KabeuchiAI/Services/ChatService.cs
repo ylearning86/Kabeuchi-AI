@@ -57,7 +57,8 @@ public class FoundryChatService : IChatService
             ?.InformationalVersion;
         if (!string.IsNullOrWhiteSpace(info))
         {
-            return info;
+            var plusIndex = info.IndexOf('+');
+            return plusIndex >= 0 ? info[..plusIndex] : info;
         }
 
         var v = asm.GetName().Version;
