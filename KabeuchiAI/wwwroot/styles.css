@@ -329,8 +329,9 @@ body {
         text-align: right;
         padding: 6px 16px 10px;
         background: #f8f9fa;
-        color: #777;
-        font-size: 10.5px;
+        color: rgba(0, 0, 0, 0.55);
+        font-size: 9.5px;
+        letter-spacing: 0.02em;
         border-top: 1px solid #e9ecef;
     }
     background: #e9ecef;
