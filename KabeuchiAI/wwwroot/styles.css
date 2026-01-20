@@ -157,11 +157,6 @@ body {
     display: none;
 }
 
-.quick-prompts-title {
-    font-size: 12px;
-    color: #666;
-    margin-bottom: 8px;
-}
 
 .prompt-chip:active {
     transform: translateY(1px);

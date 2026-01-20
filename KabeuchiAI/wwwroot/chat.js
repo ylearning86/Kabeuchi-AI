@@ -153,9 +153,7 @@ function appendMessage(text, sender, meta) {
 function setBusyState(isBusy) {
     const input = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
-    const cancelBtn = document.getElementById('cancelBtn');
     if (sendBtn) sendBtn.disabled = !!isBusy;
-    if (cancelBtn) cancelBtn.disabled = !isBusy;
     if (input) input.disabled = !!isBusy;
 }
 
@@ -301,6 +299,14 @@ async function exportChat() {
 }
 
 function newChat() {
+    // If a request is in-flight, cancel it as part of opening a new chat.
+    if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+    }
+    removeThinkingMessage();
+    setBusyState(false);
+
     const chatBox = document.getElementById('chatBox');
     if (!chatBox) return;
 
@@ -310,12 +316,6 @@ function newChat() {
     showQuickPrompts();
 
     appendMessage('こんにちは！何かお手伝いできることがあれば、お気軽にお話しください。', 'system-message');
-}
-
-function cancelRequest() {
-    if (currentAbortController) {
-        currentAbortController.abort();
-    }
 }
 
 function autosizeInput() {
@@ -351,11 +351,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const newChatBtn = document.getElementById('newChatBtn');
     if (newChatBtn) {
         newChatBtn.addEventListener('click', newChat);
-    }
-
-    const cancelBtn = document.getElementById('cancelBtn');
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', cancelRequest);
     }
 
     const input = document.getElementById('messageInput');
