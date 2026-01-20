@@ -331,6 +331,9 @@ function autosizeInput() {
 window.addEventListener('DOMContentLoaded', () => {
     renderQuickPrompts();
 
+    // Show app version automatically (single source of truth: backend assembly)
+    updateAppVersionLabel();
+
     // Capture the initial system greeting (rendered in HTML) into the export log once.
     if (chatLog.length === 0) {
         const initial = document.querySelector('#chatBox .message.system-message .message-content');
@@ -378,3 +381,20 @@ window.addEventListener('DOMContentLoaded', () => {
 
     setBusyState(false);
 });
+
+async function updateAppVersionLabel() {
+    const el = document.getElementById('appVersion');
+    if (!el) return;
+
+    try {
+        const res = await fetch('/api/diag', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const v = data && (data.appVersion ?? data.AppVersion);
+        if (v) {
+            el.textContent = `v${String(v).replace(/^v/i, '')}`;
+        }
+    } catch {
+        // ignore
+    }
+}
