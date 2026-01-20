@@ -1,4 +1,7 @@
 const chatLog = [];
+let currentAbortController = null;
+let currentThinkingMessageEl = null;
+let isComposing = false;
 
 const quickPrompts = [
     {
@@ -22,14 +25,27 @@ const quickPrompts = [
 // メッセージ送信機能
 async function sendMessage() {
     const input = document.getElementById('messageInput');
-    const message = input.value.trim();
+    const message = (input.value ?? '').trim();
 
     if (message === '') return;
 
+    // If a request is already running, ignore.
+    if (currentAbortController) return;
+
     // ユーザーメッセージを表示
     appendMessage(message, 'user');
+
+    // After first user message, collapse quick prompts to prioritize chat
+    hideQuickPrompts();
+
     input.value = '';
     input.disabled = true;
+    autosizeInput();
+
+    setBusyState(true);
+    showThinkingMessage();
+
+    currentAbortController = new AbortController();
 
     try {
         // バックエンドAPIに送信
@@ -38,7 +54,8 @@ async function sendMessage() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify({ message: message }),
+            signal: currentAbortController.signal
         });
 
         if (!response.ok) {
@@ -49,10 +66,19 @@ async function sendMessage() {
         // Backward/forward compatibility: accept either { response } or { Response }
         const responseText = (data && (data.response ?? data.Response)) ?? '';
         const meta = data && (data.meta ?? data.Meta);
+
+        removeThinkingMessage();
         appendMessage(responseText, 'assistant', meta);
     } catch (error) {
-        appendMessage(`エラーが発生しました: ${error.message}`, 'assistant');
+        removeThinkingMessage();
+        if (error && (error.name === 'AbortError' || String(error).includes('AbortError'))) {
+            appendMessage('キャンセルしました。', 'system-message');
+        } else {
+            appendMessage(`エラーが発生しました: ${error.message}`, 'assistant');
+        }
     } finally {
+        currentAbortController = null;
+        setBusyState(false);
         input.disabled = false;
         input.focus();
     }
@@ -124,6 +150,46 @@ function appendMessage(text, sender, meta) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+function setBusyState(isBusy) {
+    const input = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (sendBtn) sendBtn.disabled = !!isBusy;
+    if (cancelBtn) cancelBtn.disabled = !isBusy;
+    if (input) input.disabled = !!isBusy;
+}
+
+function showThinkingMessage() {
+    const chatBox = document.getElementById('chatBox');
+    if (!chatBox) return;
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant thinking';
+
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.textContent = 'AIが考え中…';
+
+    const dots = document.createElement('span');
+    dots.className = 'thinking-dots';
+    dots.setAttribute('aria-hidden', 'true');
+    dots.textContent = '…';
+    content.appendChild(dots);
+
+    messageDiv.appendChild(content);
+    chatBox.appendChild(messageDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    currentThinkingMessageEl = messageDiv;
+}
+
+function removeThinkingMessage() {
+    if (currentThinkingMessageEl && currentThinkingMessageEl.parentNode) {
+        currentThinkingMessageEl.parentNode.removeChild(currentThinkingMessageEl);
+    }
+    currentThinkingMessageEl = null;
+}
+
 // Assistant応答の“読みやすさ”を上げる軽い整形
 // - 単一行に潰れがちな「番号付きステップ」を改行して見やすく
 // - 既に整形されている場合は極力崩さない
@@ -159,6 +225,7 @@ function setInputAndSend(text) {
     const input = document.getElementById('messageInput');
     input.value = text;
     input.focus();
+    autosizeInput();
     sendMessage();
 }
 
@@ -176,6 +243,16 @@ function renderQuickPrompts() {
         btn.addEventListener('click', () => setInputAndSend(p.text));
         container.appendChild(btn);
     }
+}
+
+function hideQuickPrompts() {
+    const panel = document.getElementById('quickPromptsPanel');
+    if (panel) panel.classList.add('is-collapsed');
+}
+
+function showQuickPrompts() {
+    const panel = document.getElementById('quickPromptsPanel');
+    if (panel) panel.classList.remove('is-collapsed');
 }
 
 function escapeMarkdownText(text) {
@@ -219,29 +296,36 @@ async function exportChat() {
     const ymd = new Date().toISOString().slice(0, 10);
     const filename = `kabeuchi-chat-${ymd}.md`;
 
-    // Prefer clipboard if available; otherwise download
-    if (navigator.clipboard && window.isSecureContext) {
-        try {
-            await navigator.clipboard.writeText(md);
-            appendMessage('チャットログをクリップボードにコピーしました（Markdown）。必要ならそのまま貼り付けてください。', 'system-message');
-            return;
-        } catch {
-            // fall through to download
-        }
-    }
-
     downloadTextFile(filename, md, 'text/markdown;charset=utf-8');
     appendMessage('チャットログをMarkdownとしてエクスポートしました。', 'system-message');
 }
 
-function clearChat() {
+function newChat() {
     const chatBox = document.getElementById('chatBox');
     if (!chatBox) return;
 
     chatBox.innerHTML = '';
     chatLog.length = 0;
 
+    showQuickPrompts();
+
     appendMessage('こんにちは！何かお手伝いできることがあれば、お気軽にお話しください。', 'system-message');
+}
+
+function cancelRequest() {
+    if (currentAbortController) {
+        currentAbortController.abort();
+    }
+}
+
+function autosizeInput() {
+    const input = document.getElementById('messageInput');
+    if (!input) return;
+    // reset
+    input.style.height = 'auto';
+    // cap at ~6 lines
+    const max = 6 * 20 + 24;
+    input.style.height = Math.min(input.scrollHeight, max) + 'px';
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -261,8 +345,36 @@ window.addEventListener('DOMContentLoaded', () => {
         exportBtn.addEventListener('click', exportChat);
     }
 
-    const clearBtn = document.getElementById('clearBtn');
-    if (clearBtn) {
-        clearBtn.addEventListener('click', clearChat);
+    const newChatBtn = document.getElementById('newChatBtn');
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', newChat);
     }
+
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', cancelRequest);
+    }
+
+    const input = document.getElementById('messageInput');
+    if (input) {
+        input.addEventListener('compositionstart', () => { isComposing = true; });
+        input.addEventListener('compositionend', () => { isComposing = false; });
+
+        input.addEventListener('input', autosizeInput);
+        autosizeInput();
+
+        input.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            if (isComposing) return;
+            if (event.shiftKey) return; // allow newline
+
+            // Enter sends
+            event.preventDefault();
+            if (!input.disabled) {
+                sendMessage();
+            }
+        });
+    }
+
+    setBusyState(false);
 });
