@@ -48,6 +48,24 @@ public class FoundryChatService : IChatService
     private readonly TokenCredential _credential;
     private readonly IWebHostEnvironment _environment;
 
+    private static string GetAppVersion()
+    {
+        var asm = typeof(FoundryChatService).Assembly;
+        var info = asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()
+            ?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            return info;
+        }
+
+        var v = asm.GetName().Version;
+        return v?.ToString() ?? "unknown";
+    }
+
+    private static readonly string AppUserAgent = $"KabeuchiAI/{GetAppVersion()}";
+
     private static readonly TimeSpan FoundryRequestTimeout = TimeSpan.FromSeconds(30);
 
     private static string? TryExtractResponseText(string responseContent)
@@ -326,7 +344,7 @@ public class FoundryChatService : IChatService
                     Content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json"),
                 };
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-                request.Headers.UserAgent.ParseAdd("KabeuchiAI/v0.1.0");
+                request.Headers.UserAgent.ParseAdd(AppUserAgent);
 
                 _logger.LogInformation("POST {Url}", url);
 

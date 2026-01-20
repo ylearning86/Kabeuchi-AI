@@ -1,11 +1,33 @@
 var builder = WebApplication.CreateBuilder(args);
 
-// ポート設定（開発環境では 5000、本番環境ではランダムポート）
-var port = builder.Environment.IsDevelopment() ? 5000 : 0;
-builder.WebHost.ConfigureKestrel(serverOptions =>
+static string GetAppVersion()
 {
-    serverOptions.ListenLocalhost(port);
-});
+    var asm = typeof(Program).Assembly;
+    var info = asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+        .FirstOrDefault()
+        ?.InformationalVersion;
+    if (!string.IsNullOrWhiteSpace(info))
+    {
+        return info;
+    }
+
+    var v = asm.GetName().Version;
+    return v?.ToString() ?? "unknown";
+}
+
+var appVersion = GetAppVersion();
+
+// ポート設定（開発環境では既定で 5000、ただし --urls / ASPNETCORE_URLS を優先する）
+var urlsConfigured = !string.IsNullOrWhiteSpace(builder.Configuration[Microsoft.AspNetCore.Hosting.WebHostDefaults.ServerUrlsKey])
+    || !string.IsNullOrWhiteSpace(builder.Configuration["urls"]);
+if (builder.Environment.IsDevelopment() && !urlsConfigured)
+{
+    builder.WebHost.ConfigureKestrel(serverOptions =>
+    {
+        serverOptions.ListenLocalhost(5000);
+    });
+}
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -40,9 +62,16 @@ if (app.Environment.IsDevelopment())
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.UseCors("AllowAll");
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("AllowAll");
+}
 
-app.UseHttpsRedirection();
+// 開発環境で https ポート未設定の場合、警告が出るため本番のみ有効化
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 // Diagnostics endpoint (no secrets) to verify what the running app is configured to call.
 app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
@@ -61,7 +90,7 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 
     return Results.Ok(new
     {
-        appVersion = "0.1.0",
+        appVersion,
         environment = env.EnvironmentName,
         foundry = new
         {
@@ -78,10 +107,14 @@ app.MapGet("/api/diag", (IConfiguration config, IHostEnvironment env) =>
 // Chat API endpoint
 app.MapPost("/api/chat", async (ChatRequest request, KabeuchiAI.Services.IChatService chatService, HttpContext http) =>
 {
-    if (string.IsNullOrEmpty(request.Message))
+    var message = request.Message?.Trim() ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(message))
         return Results.BadRequest("メッセージが空です");
 
-    var result = await chatService.SendMessageAsync(request.Message, http.RequestAborted);
+    if (message.Length > 4000)
+        return Results.BadRequest("メッセージが長すぎます（最大 4000 文字）");
+
+    var result = await chatService.SendMessageAsync(message, http.RequestAborted);
     return Results.Ok(new ChatResponse
     {
         Response = result.Text,
