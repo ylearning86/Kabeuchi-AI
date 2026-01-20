@@ -36,6 +36,25 @@ body {
     position: relative;
 }
 
+.header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.header-title {
+    text-align: left;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .chat-header h1 {
     font-size: 24px;
     margin-bottom: 5px;
@@ -47,14 +66,58 @@ body {
 }
 
 .chat-header .version {
-    position: absolute;
-    top: 10px;
-    right: 15px;
     font-size: 11px;
-    opacity: 0.7;
+    opacity: 0.8;
     background: rgba(255, 255, 255, 0.2);
     padding: 3px 8px;
     border-radius: 10px;
+    white-space: nowrap;
+}
+
+.header-btn {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+    white-space: nowrap;
+}
+
+.header-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+}
+
+.header-btn:active {
+    transform: translateY(0);
+}
+
+.quick-prompts {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.prompt-chip {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.prompt-chip:hover {
+    background: rgba(255, 255, 255, 0.18);
 }
 
 .chat-box {
@@ -298,13 +361,21 @@ body {
         justify-content: flex-end;
     }
 
-    .message p {
+    .message .message-content {
         max-width: 85%;
         font-size: 13px;
     }
 
     .chat-header h1 {
         font-size: 20px;
+    }
+
+    .header-top {
+        align-items: flex-start;
+    }
+
+    .header-actions {
+        gap: 6px;
     }
 
     .input-area {
